@@ -24,7 +24,7 @@ export default async function handler(req, res) {
 
     const contactName = payload.contact?.name || payload.conversation?.contact?.name || 'Sem nome';
     const status = payload.conversation?.status || 'OPEN';
-    const createdAt = payload.conversation?.createdAt || new Date().toISOString();
+    const createdAt = payload.conversation?.createdAt || payload.createdAt || payload.timestamp || new Date().toISOString();
     const lastMessageAt = payload.message?.timestamp ? new Date(payload.message.timestamp * 1000).toISOString() : new Date().toISOString();
     const tags = payload.conversation?.tags || payload.tags || [];
     const tagNames = tags.map(t => typeof t === 'string' ? t : t.name || '').filter(Boolean);
