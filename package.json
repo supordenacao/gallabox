@@ -1,1 +1,10 @@
-
+{
+  "name": "gallabox-webhook",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4"
+  }
+}
