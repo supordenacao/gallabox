@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     const convId = payload.conversation?.id || payload.data?.conversation?.id || payload.conversationId;
     if (!convId) return res.status(400).json({ message: 'No conversation ID' });
 
-    // Filtro 1: Ignora mensagens do agente
+    // Ignora mensagens do agente
     if (payload.message?.fromMe === true) {
       console.log(`Mensagem do agente ignorada: ${convId}`);
       return res.status(200).json({ message: 'OK - agent message' });
@@ -30,10 +30,20 @@ export default async function handler(req, res) {
 
     const contactName = payload.contact?.name || payload.conversation?.contact?.name || 'Sem nome';
     const status = payload.conversation?.status || 'OPEN';
-    const createdAt = payload.conversation?.createdAt || payload.createdAt || payload.timestamp || new Date().toISOString();
-    const lastMessageAt = payload.message?.timestamp ? new Date(payload.message.timestamp * 1000).toISOString() : new Date().toISOString();
     const tags = payload.conversation?.tags || payload.tags || [];
     const tagNames = tags.map(t => typeof t === 'string' ? t : t.name || '').filter(Boolean);
+
+    // Detecta evento de criação
+    const isCreationEvent = payload.event === 'conversation.created' ||
+                            (payload.message?.text && payload.message.text.includes('Contact has initiated the conversation')) ||
+                            (payload.text && payload.text.includes('Contact has initiated the conversation'));
+
+    let createdAt = payload.conversation?.createdAt || payload.createdAt || payload.timestamp || new Date().toISOString();
+    if (isCreationEvent && payload.timestamp) {
+      createdAt = new Date(payload.timestamp * 1000).toISOString();
+    }
+
+    const lastMessageAt = payload.message?.timestamp ? new Date(payload.message.timestamp * 1000).toISOString() : new Date().toISOString();
 
     if (status === 'CLOSED' || status === 'closed') {
       const { error } = await supabase.from('open_conversations').delete().eq('id', convId);
@@ -42,22 +52,33 @@ export default async function handler(req, res) {
       return res.status(200).json({ message: 'OK' });
     }
 
-    // Filtro 2: Limitar a 12 mensagens por conversa
-    const { data: existing } = await supabase.from('open_conversations').select('message_count').eq('id', convId).single().maybeSingle();
-    let currentCount = existing?.message_count || 0;
+    // Busca dados existentes (para count e created_at fixo)
+    const { data: existing } = await supabase
+      .from('open_conversations')
+      .select('created_at, message_count')
+      .eq('id', convId)
+      .single()
+      .maybeSingle();
 
-    if (currentCount >= 12) {
-      console.log(`Limite de 12 mensagens atingido - ignorando: ${convId}`);
+    let currentCount = (existing?.message_count || 0);
+    const finalCreatedAt = existing?.created_at || createdAt;
+
+    // Incrementa count se for mensagem nova
+    if (payload.message) {
+      currentCount += 1;
+    }
+
+    // Limite de 12 mensagens
+    if (currentCount > 12) {
+      console.log(`Limite de 12 mensagens atingido (${currentCount}) - ignorando: ${convId}`);
       return res.status(200).json({ message: 'OK - message limit reached' });
     }
 
-    // Incrementa só se for mensagem nova
-    if (payload.message) currentCount += 1;
-
+    // Upsert final
     const { error } = await supabase.from('open_conversations').upsert({
       id: convId,
       contact_name: contactName,
-      created_at: createdAt,
+      created_at: finalCreatedAt,
       last_message_at: lastMessageAt,
       status: 'OPEN',
       tags: tagNames,
@@ -70,7 +91,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ message: 'OK' });
   } catch (error) {
-    console.error('Erro:', error);
+    console.error('Erro crítico:', error);
     res.status(500).json({ error: error.message });
   }
 }
