@@ -15,6 +15,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+    // PAUSE AUTOMÁTICO: 23:00 às 08:00 (horário Brasil)
+    const now = new Date();
+    const hour = now.getHours(); // 0-23
+
+    if (hour >= 23 || hour < 8) {
+      console.log(`Pause ativo (23h-08h) - evento ignorado: ${convId || 'unknown'}`);
+      return res.status(200).json({ message: 'OK - pause horário' });
+    }  
+
   try {
     const payload = req.body;
     if (!payload) return res.status(400).json({ message: 'No payload' });
