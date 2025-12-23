@@ -60,18 +60,22 @@ export default async function handler(req, res) {
       return res.status(200).json({ message: 'OK' });
     }
 
-    // Busca dados existentes (para count e created_at fixo)
-    const { data: existing } = await supabase
+    // COMECO DE BUSCA PARA COUNT
+    const { data: existing, error: fetchError } = await supabase
       .from('open_conversations')
-      .select('created_at, message_count')
+      .select('message_count')
       .eq('id', convId)
-      .single()
-      .maybeSingle();
+      .single();
 
-    let currentCount = (existing?.message_count || 0);
-    const finalCreatedAt = existing?.created_at || createdAt;
+    let currentCount = 0;
+    if (fetchError && fetchError.code !== 'PGRST116') { // ignora "no row" error
+      throw fetchError;
+    }
+    if (existing) {
+      currentCount = existing.message_count || 0;
+    }
 
-    // Incrementa count se for mensagem nova
+    // Incrementa só se for mensagem nova (do cliente, já ignoramos agente)
     if (payload.message) {
       currentCount += 1;
     }
@@ -82,19 +86,19 @@ export default async function handler(req, res) {
       return res.status(200).json({ message: 'OK - message limit reached' });
     }
 
-    // Upsert final na open_conversations
-    const { error: upsertError } = await supabase.from('open_conversations').upsert({
+    // Upsert com count incrementado
+    const { error } = await supabase.from('open_conversations').upsert({
       id: convId,
       contact_name: contactName,
       created_at: finalCreatedAt,
       last_message_at: lastMessageAt,
       status: 'OPEN',
       tags: tagNames,
-      message_count: currentCount,
+      message_count: currentCount, // força o valor incrementado
       updated_at: new Date().toISOString()
     }, { onConflict: 'id' });
 
-    if (upsertError) throw upsertError;
+    if (error) throw error;
     console.log(`Mensagem processada (${currentCount}/12): ${convId}`);
 
     // ==================== CAPTURA DE AVALIAÇÕES ====================
