@@ -63,22 +63,16 @@ export default async function handler(req, res) {
     }
 
     // ================  COMECO DE BUSCA PARA COUNT  ===========================
-let currentCount = 1; // começa em 1 na primeira mensagem (conversa nova)
+let currentCount = 1; // primeira mensagem = count 1
 
-    // Busca se já existe row
-    const { data: existingRow, error: fetchError } = await supabase
+    const { data: existingRow } = await supabase
       .from('open_conversations')
       .select('message_count')
       .eq('id', convId)
-      .single();
+      .maybeSingle();
 
-    if (fetchError) {
-      if (fetchError.code !== 'PGRST116') { // "no row" = conversa nova
-        console.error('Erro ao buscar count:', fetchError);
-      }
-      // conversa nova → count = 1 (primeira mensagem)
-    } else {
-      currentCount = (existingRow.message_count || 0) + 1; // incrementa +1 em existente
+    if (existingRow) {
+      currentCount = (existingRow.message_count || 0) + 1;
     }
 
     // Limite de 12 mensagens
