@@ -63,35 +63,31 @@ export default async function handler(req, res) {
     }
 
     // ================  COMECO DE BUSCA PARA COUNT  ===========================
-    let currentCount = 0;
+let currentCount = 1; // começa em 1 na primeira mensagem (conversa nova)
 
-    // Busca se já existe row para esse convId
+    // Busca se já existe row
     const { data: existingRow, error: fetchError } = await supabase
       .from('open_conversations')
       .select('message_count')
       .eq('id', convId)
-      .maybeSingle(); // permite null se não existir
+      .single();
 
-    if (fetchError && fetchError.code !== 'PGRST116') { // ignora "no row"
-      console.error('Erro ao buscar count:', fetchError);
+    if (fetchError) {
+      if (fetchError.code !== 'PGRST116') { // "no row" = conversa nova
+        console.error('Erro ao buscar count:', fetchError);
+      }
+      // conversa nova → count = 1 (primeira mensagem)
+    } else {
+      currentCount = (existingRow.message_count || 0) + 1; // incrementa +1 em existente
     }
 
-    if (existingRow) {
-      currentCount = existingRow.message_count || 0;
-    }
-
-    // Incrementa +1 a cada mensagem válida (do cliente, já ignoramos agente)
-    if (payload.message) {
-      currentCount += 1;
-    }
-
-    // Limite de 12 mensagens — ignora após isso
+    // Limite de 12 mensagens
     if (currentCount > 12) {
-      console.log(`Limite de 12 mensagens atingido (${currentCount}) - ignorando nova mensagem: ${convId}`);
+      console.log(`Limite de 12 mensagens atingido (${currentCount}) - ignorando: ${convId}`);
       return res.status(200).json({ message: 'OK - message limit reached' });
     }
 
-    // Upsert com count atualizado
+    // Upsert com count correto
     const { error } = await supabase.from('open_conversations').upsert({
       id: convId,
       contact_name: contactName,
