@@ -63,21 +63,23 @@ export default async function handler(req, res) {
     }
 
     // COMECO DE BUSCA PARA COUNT
+    let currentCount = 0;
     const { data: existing, error: fetchError } = await supabase
       .from('open_conversations')
       .select('message_count')
       .eq('id', convId)
       .single();
 
-    let currentCount = 0;
-    if (fetchError && fetchError.code !== 'PGRST116') { // ignora "no row" error
-      throw fetchError;
-    }
-    if (existing) {
+    if (fetchError) {
+      if (fetchError.code !== 'PGRST116') { // erro real (não "no row")
+        console.error('Erro ao buscar count:', fetchError);
+      }
+      // conversa nova → count = 0 (normal)
+    } else if (existing) {
       currentCount = existing.message_count || 0;
     }
 
-    // Incrementa só se for mensagem nova (do cliente, já ignoramos agente)
+    // Incrementa se for mensagem nova (do cliente)
     if (payload.message) {
       currentCount += 1;
     }
@@ -96,7 +98,7 @@ export default async function handler(req, res) {
       last_message_at: lastMessageAt,
       status: 'OPEN',
       tags: tagNames,
-      message_count: currentCount, // força o valor incrementado
+      message_count: currentCount,
       updated_at: new Date().toISOString()
     }, { onConflict: 'id' });
 
