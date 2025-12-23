@@ -15,12 +15,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // PAUSE AUTOMÁTICO: 23:00 às 08:00 (horário Brasil)
-  const now = new Date();
-  const hour = now.getHours(); // 0-23
-  if (hour >= 23 || hour < 8) {
-    console.log('Pause ativo (23h-08h) - evento ignorado');
-    return res.status(200).json({ message: 'OK - pause horário' });
+  // PAUSE AUTOMÁTICO: 23:00 às 08:00 no HORÁRIO DO BRASIL (UTC-3)
+  const nowUTC = new Date();
+  const nowBrasil = new Date(nowUTC.toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
+  const hourBrasil = nowBrasil.getHours(); // 0-23 no horário de Brasília
+
+  if (hourBrasil >= 23 || hourBrasil < 8) {
+    console.log(`Pause ativo (23h-08h Brasil) - evento ignorado às ${hourBrasil}:00`);
+    return res.status(200).json({ message: 'OK - pause horário Brasil' });
   }
 
   try {
