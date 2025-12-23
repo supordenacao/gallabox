@@ -15,14 +15,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-    // PAUSE AUTOMÁTICO: 23:00 às 08:00 (horário Brasil)
-    const now = new Date();
-    const hour = now.getHours(); // 0-23
-
-    if (hour >= 23 || hour < 8) {
-      console.log(`Pause ativo (23h-08h) - evento ignorado: ${convId || 'unknown'}`);
-      return res.status(200).json({ message: 'OK - pause horário' });
-    }  
+  // PAUSE AUTOMÁTICO: 23:00 às 08:00 (horário Brasil)
+  const now = new Date();
+  const hour = now.getHours(); // 0-23
+  if (hour >= 23 || hour < 8) {
+    console.log('Pause ativo (23h-08h) - evento ignorado');
+    return res.status(200).json({ message: 'OK - pause horário' });
+  }
 
   try {
     const payload = req.body;
@@ -83,8 +82,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ message: 'OK - message limit reached' });
     }
 
-    // Upsert final
-    const { error } = await supabase.from('open_conversations').upsert({
+    // Upsert final na open_conversations
+    const { error: upsertError } = await supabase.from('open_conversations').upsert({
       id: convId,
       contact_name: contactName,
       created_at: finalCreatedAt,
@@ -95,8 +94,63 @@ export default async function handler(req, res) {
       updated_at: new Date().toISOString()
     }, { onConflict: 'id' });
 
-    if (error) throw error;
+    if (upsertError) throw upsertError;
     console.log(`Mensagem processada (${currentCount}/12): ${convId}`);
+
+    // ==================== CAPTURA DE AVALIAÇÕES ====================
+    try {
+      const interactive = payload?.whatsapp?.interactive ||
+                          payload?.message?.whatsapp?.interactive ||
+                          payload?.latestMessage?.whatsapp?.interactive ||
+                          payload?.latestMessage?.interactive;
+
+      if (interactive?.type === 'list_reply' && interactive.list_reply?.id?.startsWith('nota_')) {
+        const rating = parseInt(interactive.list_reply.id.replace('nota_', ''), 10);
+        const conversationId = convId || 'unknown';
+
+        // Anti-duplicidade
+        const { data: existingEval } = await supabase
+          .from('evaluations')
+          .select('id')
+          .eq('conversation_id', conversationId)
+          .limit(1);
+
+        if (existingEval && existingEval.length > 0) {
+          console.log(`Avaliação duplicada ignorada: ${conversationId} - Nota ${rating}`);
+        } else {
+          const analystName = payload?.agent?.name ||
+                              payload?.assignee?.name ||
+                              payload?.user?.name ||
+                              payload?.whatsapp?.assignee?.name ||
+                              'Não identificado';
+
+          let clientPhone = '';
+          if (Array.isArray(payload?.contact?.phone)) {
+            clientPhone = payload.contact.phone[0] || '';
+          } else if (payload?.contact?.phone) {
+            clientPhone = payload.contact.phone;
+          } else if (payload?.whatsapp?.from) {
+            clientPhone = payload.whatsapp.from;
+          }
+
+          const evaluation = {
+            conversation_id: conversationId,
+            analyst_name: analystName.trim(),
+            client_name: (payload?.contact?.name || payload?.whatsapp?.from || 'Anônimo').trim(),
+            client_phone: clientPhone.replace('+', '').trim(),
+            rating: rating,
+            comment: (interactive.list_reply.description || interactive.list_reply.title || 'Sem comentário').trim()
+          };
+
+          const { error: evalError } = await supabase.from('evaluations').insert(evaluation);
+          if (evalError) console.error('Erro ao salvar avaliação:', evalError);
+          else console.log(`Avaliação salva: Nota ${rating} - ${conversationId}`);
+        }
+      }
+    } catch (evalError) {
+      console.error('Erro ao processar avaliação:', evalError);
+    }
+    // ============================================================
 
     res.status(200).json({ message: 'OK' });
   } catch (error) {
