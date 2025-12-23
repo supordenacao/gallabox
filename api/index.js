@@ -107,14 +107,23 @@ export default async function handler(req, res) {
 
     // ==================== CAPTURA DE AVALIAÇÕES ====================
     try {
-      const interactive = payload?.whatsapp?.interactive ||
-                          payload?.message?.whatsapp?.interactive ||
-                          payload?.latestMessage?.whatsapp?.interactive ||
-                          payload?.latestMessage?.interactive;
+      // Caminhos múltiplos para interactive (Gallabox varia)
+      let listReply = null;
+      if (payload.interactive?.type === 'list_reply') {
+        listReply = payload.interactive.list_reply;
+      } else if (payload.message?.interactive?.type === 'list_reply') {
+        listReply = payload.message.interactive.list_reply;
+      } else if (payload.message?.whatsapp?.interactive?.type === 'list_reply') {
+        listReply = payload.message.whatsapp.interactive.list_reply;
+      } else if (payload.whatsapp?.interactive?.type === 'list_reply') {
+        listReply = payload.whatsapp.interactive.list_reply;
+      } else if (payload.latestMessage?.interactive?.type === 'list_reply') {
+        listReply = payload.latestMessage.interactive.list_reply;
+      }
 
-      if (interactive?.type === 'list_reply' && interactive.list_reply?.id?.startsWith('nota_')) {
-        const rating = parseInt(interactive.list_reply.id.replace('nota_', ''), 10);
-        const conversationId = convId || 'unknown';
+      if (listReply && listReply.id?.startsWith('nota_')) {
+        const rating = parseInt(listReply.id.replace('nota_', ''), 10);
+        const conversationId = convId || payload.conversationId || payload.id || 'unknown';
 
         // Anti-duplicidade
         const { data: existingEval } = await supabase
@@ -126,39 +135,43 @@ export default async function handler(req, res) {
         if (existingEval && existingEval.length > 0) {
           console.log(`Avaliação duplicada ignorada: ${conversationId} - Nota ${rating}`);
         } else {
-          const analystName = payload?.agent?.name ||
-                              payload?.assignee?.name ||
-                              payload?.user?.name ||
-                              payload?.whatsapp?.assignee?.name ||
+          const analystName = payload.agent?.name ||
+                              payload.assignee?.name ||
+                              payload.user?.name ||
+                              payload.whatsapp?.assignee?.name ||
+                              payload.assignee?.whatsapp?.name ||
                               'Não identificado';
 
           let clientPhone = '';
-          if (Array.isArray(payload?.contact?.phone)) {
+          if (Array.isArray(payload.contact?.phone)) {
             clientPhone = payload.contact.phone[0] || '';
-          } else if (payload?.contact?.phone) {
+          } else if (payload.contact?.phone) {
             clientPhone = payload.contact.phone;
-          } else if (payload?.whatsapp?.from) {
+          } else if (payload.whatsapp?.from) {
             clientPhone = payload.whatsapp.from;
+          } else if (payload.from) {
+            clientPhone = payload.from;
           }
 
           const evaluation = {
             conversation_id: conversationId,
             analyst_name: analystName.trim(),
-            client_name: (payload?.contact?.name || payload?.whatsapp?.from || 'Anônimo').trim(),
+            client_name: (payload.contact?.name || payload.whatsapp?.from || payload.from || 'Anônimo').trim(),
             client_phone: clientPhone.replace('+', '').trim(),
             rating: rating,
-            comment: (interactive.list_reply.description || interactive.list_reply.title || 'Sem comentário').trim()
+            comment: (listReply.description || listReply.title || 'Sem comentário').trim(),
+            timestamp: new Date().toISOString()
           };
 
-          const { error: evalError } = await supabase.from('evaluations').insert(evaluation);
-          if (evalError) console.error('Erro ao salvar avaliação:', evalError);
-          else console.log(`Avaliação salva: Nota ${rating} - ${conversationId}`);
+          const { error } = await supabase.from('evaluations').insert(evaluation);
+          if (error) console.error('Erro ao salvar avaliação:', error);
+          else console.log(`AVALIAÇÃO SALVA: Nota ${rating} - ${conversationId} - ${analystName}`);
         }
       }
     } catch (evalError) {
       console.error('Erro ao processar avaliação:', evalError);
     }
-    // ============================================================
+    // ==============================================================================
 
     res.status(200).json({ message: 'OK' });
   } catch (error) {
