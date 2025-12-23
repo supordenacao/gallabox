@@ -62,35 +62,36 @@ export default async function handler(req, res) {
       return res.status(200).json({ message: 'OK' });
     }
 
-    // COMECO DE BUSCA PARA COUNT
+    // ================  COMECO DE BUSCA PARA COUNT  ===========================
     let currentCount = 0;
-    const { data: existing, error: fetchError } = await supabase
+
+    // Busca se já existe row para esse convId
+    const { data: existingRow, error: fetchError } = await supabase
       .from('open_conversations')
       .select('message_count')
       .eq('id', convId)
-      .single();
+      .maybeSingle(); // permite null se não existir
 
-    if (fetchError) {
-      if (fetchError.code !== 'PGRST116') { // erro real (não "no row")
-        console.error('Erro ao buscar count:', fetchError);
-      }
-      // conversa nova → count = 0 (normal)
-    } else if (existing) {
-      currentCount = existing.message_count || 0;
+    if (fetchError && fetchError.code !== 'PGRST116') { // ignora "no row"
+      console.error('Erro ao buscar count:', fetchError);
     }
 
-    // Incrementa se for mensagem nova (do cliente)
+    if (existingRow) {
+      currentCount = existingRow.message_count || 0;
+    }
+
+    // Incrementa +1 a cada mensagem válida (do cliente, já ignoramos agente)
     if (payload.message) {
       currentCount += 1;
     }
 
-    // Limite de 12 mensagens
+    // Limite de 12 mensagens — ignora após isso
     if (currentCount > 12) {
-      console.log(`Limite de 12 mensagens atingido (${currentCount}) - ignorando: ${convId}`);
+      console.log(`Limite de 12 mensagens atingido (${currentCount}) - ignorando nova mensagem: ${convId}`);
       return res.status(200).json({ message: 'OK - message limit reached' });
     }
 
-    // Upsert com count incrementado
+    // Upsert com count atualizado
     const { error } = await supabase.from('open_conversations').upsert({
       id: convId,
       contact_name: contactName,
@@ -103,7 +104,7 @@ export default async function handler(req, res) {
     }, { onConflict: 'id' });
 
     if (error) throw error;
-    console.log(`Mensagem processada (${currentCount}/12): ${convId}`);
+    console.log(`Mensagem processada - count: ${currentCount}/12 - convId: ${convId}`);
 
     // ==================== CAPTURA DE AVALIAÇÕES ====================
     try {
